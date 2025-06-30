@@ -37,6 +37,30 @@ resolver.define("getIssuesByKeys", async (req) => {
     return data;
 });
 
+resolver.define("updateIssue", async (req) => {
+    const { issueKey, fields } = req.payload;
+    
+    try {
+        const response = await api
+            .asUser()
+            .requestJira(route`/rest/api/3/issue/${issueKey}`, {
+                method: "PUT",
+                headers: {
+                    Accept: "application/json",
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                    fields: fields
+                }),
+            });
+
+        return { success: true };
+    } catch (error) {
+        console.error("Error updating issue:", error);
+        return { success: false, error: error.message };
+    }
+});
+
 resolver.define("deleteIssue", async (req) => {
     const { issueKey } = req.payload;
 
