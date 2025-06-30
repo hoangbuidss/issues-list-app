@@ -10,7 +10,12 @@ modules:
         entityPropertyExists:
           entity: project
           propertyKey: show-project-page
-
+  jira:projectSettingsPage:
+  - key: access-permission-toggle-app-hello-world-project-settings-page
+    resource: main
+    resolver:
+      function: resolver
+    title: access-permission-toggle-app
   function:
   - key: resolver
     handler: index.handler
