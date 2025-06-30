@@ -1,0 +1,41 @@
+modules:
+  jira:projectPage:
+  - key: issue-list-app-hello-world-project-page
+    resource: main
+    resolver:
+      function: resolver
+    title: Issue List
+    displayConditions:
+      not:
+        entityPropertyExists:
+          entity: project
+          propertyKey: show-project-page
+
+  content:
+    styles:
+    - 'unsafe-inline'
+    scripts:
+    - 'unsafe-inline'
+
+  function:
+  - key: resolver
+    handler: index.handler
+
+resources:
+- key: main
+  path: static/hello-world/build
+  tunnel:
+    port: 3000
+
+app:
+  runtime:
+    name: nodejs22.x
+    memoryMB: 256
+    architecture: arm64
+  id: ari:cloud:ecosystem::app/b59dc851-7aef-4bc8-96e9-f44eead6cc14
+
+permissions:
+  scopes:
+  - manage:jira-project
+  - write:jira-work
+  - read:jira-work
