@@ -11,12 +11,6 @@ modules:
           entity: project
           propertyKey: show-project-page
 
-  content:
-    styles:
-    - 'unsafe-inline'
-    scripts:
-    - 'unsafe-inline'
-
   function:
   - key: resolver
     handler: index.handler
@@ -35,6 +29,11 @@ app:
   id: ari:cloud:ecosystem::app/b59dc851-7aef-4bc8-96e9-f44eead6cc14
 
 permissions:
+  content:
+    styles:
+    - 'unsafe-inline'
+    scripts:
+    - 'unsafe-inline'
   scopes:
   - manage:jira-project
   - write:jira-work
