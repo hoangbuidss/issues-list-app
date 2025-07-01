@@ -36,10 +36,12 @@ app:
 permissions:
   content:
     styles:
-    - 'unsafe-inline'
+    - unsafe-inline
     scripts:
-    - 'unsafe-inline'
+    - unsafe-inline
   scopes:
-  - manage:jira-project
-  - write:jira-work
+  - read:jira-user
   - read:jira-work
+  - write:jira-work
+  - manage:jira-project
+  - read:user:jira

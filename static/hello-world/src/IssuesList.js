@@ -8,6 +8,7 @@ import ChevronRightIcon from "@atlaskit/icon/glyph/chevron-right";
 import PersonIcon from "@atlaskit/icon/glyph/person";
 import EditIcon from "@atlaskit/icon/glyph/edit";
 import TrashIcon from "@atlaskit/icon/glyph/trash";
+import { ViewIssueModal } from "@forge/jira-bridge";
 import Modal, {
     ModalBody,
     ModalFooter,
@@ -15,6 +16,10 @@ import Modal, {
     ModalTitle,
     ModalTransition,
 } from "@atlaskit/modal-dialog";
+import UpdateIssueDialog from "./UpdateIssueDialog";
+import AddIcon from "@atlaskit/icon/glyph/add";
+import CreateIssueDialog from "./CreateIssueDialog";
+import { Pressable } from "@atlaskit/primitives/compiled";
 
 function IssuesList() {
     const [issues, setIssues] = useState([]);
@@ -24,8 +29,15 @@ function IssuesList() {
     const [currentToken, setCurrentToken] = useState("");
     const [nextToken, setNextToken] = useState("");
     const [isLastPage, setIsLastPage] = useState(false);
+    // delete issue state
     const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
     const [issueToDelete, setIssueToDelete] = useState(null);
+    // update issue state
+    const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
+    const [issueToUpdate, setIssueToUpdate] = useState(null);
+    // create issue state
+    const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+    const [urlIssueDialog, setUrlIssueDialog] = useState("");
 
     const MAX_RESULTS = 5;
 
@@ -83,6 +95,7 @@ function IssuesList() {
         }
     };
 
+    // handle pagination
     const handleNext = () => {
         setPrevTokens((prev) => [...prev, currentToken]);
         setCurrentToken(nextToken);
@@ -97,10 +110,35 @@ function IssuesList() {
         setCurrentToken(newCurrent);
     };
 
-    const handleUpdate = (issueKey) => {
-        console.log(`Update issue ${issueKey}`);
+    // handle update
+    const handleUpdateIssue = (issue) => {
+        setIssueToUpdate(issue);
+        setIsUpdateModalOpen(true);
     };
 
+    const handleCloseUpdateDialog = () => {
+        setIsUpdateModalOpen(false);
+        setIssueToUpdate(null);
+    };
+
+    const handleUpdateComplete = () => {
+        fetchIssues();
+    };
+
+    // handle create
+    const handleCreateIssue = () => {
+        setIsCreateModalOpen(true);
+    };
+
+    const handleCloseCreateDialog = () => {
+        setIsCreateModalOpen(false);
+    };
+
+    const handleCreateComplete = () => {
+        fetchIssues();
+    };
+
+    // hande get sub-task
     const toggleExpand = (issueId) => {
         setExpandedIssues((prev) => ({
             ...prev,
@@ -120,6 +158,15 @@ function IssuesList() {
             "to do": "#42526E",
         };
         return statusColorMap[statusName] || "#42526E";
+    };
+
+    const handleOpenViewIssue = (issueKey) => {
+        const viewIssueModal = new ViewIssueModal({
+            context: {
+                issueKey: issueKey,
+            },
+        });
+        viewIssueModal.open();
     };
 
     const IssueItem = ({ issue, depth = 0 }) => {
@@ -186,7 +233,11 @@ function IssuesList() {
                             marginRight: "8px",
                         }}
                     >
-                        {issue.key}
+                        <Pressable
+                            onClick={() => handleOpenViewIssue(issue.key)}
+                        >
+                            {issue.key}
+                        </Pressable>
                     </div>
 
                     <div
@@ -244,7 +295,7 @@ function IssuesList() {
                                 padding: "4px",
                                 marginRight: "4px",
                             }}
-                            onClick={() => handleUpdate(issue.key)}
+                            onClick={() => handleUpdateIssue(issue.key)}
                         >
                             <EditIcon size="small" primaryColor="#42526E" />
                         </span>
@@ -336,7 +387,39 @@ function IssuesList() {
                 color: "#172B4D",
             }}
         >
+            <CreateIssueDialog
+                isOpen={isCreateModalOpen}
+                onClose={handleCloseCreateDialog}
+                onCreate={handleCreateComplete}
+            />
+
+            <UpdateIssueDialog
+                isOpen={isUpdateModalOpen}
+                onClose={handleCloseUpdateDialog}
+                issue={issueToUpdate}
+                onUpdate={handleUpdateComplete}
+            />
             <DeleteConfirmationModal />
+
+            <div
+                style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    marginBottom: "20px",
+                    borderBottom: "2px solid #dfe1e6",
+                    paddingBottom: "16px",
+                }}
+            >
+                <h1 style={{ margin: 0 }}></h1>
+                <Button
+                    appearance="primary"
+                    iconBefore={() => <AddIcon size="small" />}
+                    onClick={handleCreateIssue}
+                >
+                    Create Issue
+                </Button>
+            </div>
 
             <div style={{ borderTop: "1px solid #dfe1e6" }}>
                 {issues.map((issue) => (

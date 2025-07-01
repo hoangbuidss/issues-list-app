@@ -39,7 +39,7 @@ resolver.define("getIssuesByKeys", async (req) => {
 
 resolver.define("updateIssue", async (req) => {
     const { issueKey, fields } = req.payload;
-    
+
     try {
         const response = await api
             .asUser()
@@ -50,7 +50,7 @@ resolver.define("updateIssue", async (req) => {
                     "Content-Type": "application/json",
                 },
                 body: JSON.stringify({
-                    fields: fields
+                    fields: fields,
                 }),
             });
 
@@ -147,6 +147,155 @@ resolver.define("saveProperty", async (req) => {
     } catch (error) {
         console.error("Error saving property:", error);
         return { success: false, error: error.message };
+    }
+});
+
+resolver.define("getIssueTypes", async (req) => {
+    const { projectId } = req.payload;
+    try {
+        const response = await api
+            .asUser()
+            .requestJira(route`/rest/api/3/project/${projectId}`, {
+                headers: {
+                    Accept: "application/json",
+                },
+            });
+        const data = await response.json();
+
+        console.log("Project data:", JSON.stringify(data, null, 2));
+
+        // Get issue types from project data
+        const issueTypes = data.issueTypes || [];
+
+        return {
+            issueTypes: issueTypes.map((type) => ({
+                id: type.id,
+                name: type.name,
+                iconUrl: type.iconUrl,
+            })),
+        };
+    } catch (error) {
+        console.error("Error getting issue types:", error);
+        return { issueTypes: [] };
+    }
+});
+
+resolver.define("getStatuses", async (req) => {
+    const { projectKey, issueTypeId } = req.payload;
+    try {
+        const response = await api
+            .asUser()
+            .requestJira(route`/rest/api/3/project/${projectKey}/statuses`, {
+                headers: {
+                    Accept: "application/json",
+                },
+            });
+        const data = await response.json();
+
+        console.log("Statuses data:", JSON.stringify(data, null, 2));
+
+        // Check if data is an array
+        if (!Array.isArray(data)) {
+            console.error("Statuses response is not an array:", data);
+            return { statuses: [] };
+        }
+
+        // Find statuses for the specific issue type
+        const statusInfo = data.find(
+            (item) =>
+                item.issueTypes &&
+                Array.isArray(item.issueTypes) &&
+                item.issueTypes.some((type) => type.id === issueTypeId)
+        );
+
+        const statuses =
+            statusInfo && statusInfo.statuses ? statusInfo.statuses : [];
+
+        return {
+            statuses: statuses.map((s) => ({
+                id: s.id,
+                name: s.name,
+                statusCategory: s.statusCategory,
+            })),
+        };
+    } catch (error) {
+        console.error("Error getting statuses:", error);
+        return { statuses: [] };
+    }
+});
+
+resolver.define("getAssignableUsers", async (req) => {
+    const { projectKey, issueKey } = req.payload;
+    try {
+        const response = await api
+            .asUser()
+            .requestJira(
+                route`/rest/api/3/user/assignable/search?project=${projectKey}&maxResults=50`,
+                {
+                    headers: {
+                        Accept: "application/json",
+                    },
+                }
+            );
+        const data = await response.json();
+
+        console.log("Assignable users data:", JSON.stringify(data, null, 2));
+
+        // Check if data is an array
+        if (!Array.isArray(data)) {
+            console.error("Assignable users response is not an array:", data);
+            return { users: [] };
+        }
+
+        return {
+            users: data.map((user) => ({
+                accountId: user.accountId,
+                displayName: user.displayName,
+                emailAddress: user.emailAddress,
+                avatarUrls: user.avatarUrls,
+            })),
+        };
+    } catch (error) {
+        console.error("Error getting assignable users:", error);
+        return { users: [] };
+    }
+});
+
+resolver.define("createIssue", async (req) => {
+    const { projectKey, fields } = req.payload;
+
+    try {
+        const response = await api
+            .asUser()
+            .requestJira(route`/rest/api/3/issue`, {
+                method: "POST",
+                headers: {
+                    Accept: "application/json",
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                    fields: {
+                        project: {
+                            key: projectKey,
+                        },
+                        ...fields,
+                    },
+                }),
+            });
+
+        const data = await response.json();
+        console.log("Created issue:", data);
+
+        return {
+            success: true,
+            issue: data,
+        };
+    } catch (error) {
+        console.error("Error creating issue:", error);
+        return {
+            success: false,
+            error: error.message,
+        };
     }
 });
 
