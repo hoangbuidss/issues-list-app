@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { invoke, view } from "@forge/bridge";
 import Spinner from "@atlaskit/spinner";
 import Avatar from "@atlaskit/avatar";
@@ -20,11 +20,16 @@ import UpdateIssueDialog from "./UpdateIssueDialog";
 import AddIcon from "@atlaskit/icon/glyph/add";
 import CreateIssueDialog from "./CreateIssueDialog";
 import { Pressable } from "@atlaskit/primitives/compiled";
+import ErrorIcon from "@atlaskit/icon/glyph/error";
+import SuccessIcon from "@atlaskit/icon/glyph/check-circle";
+import Flag, { FlagGroup } from "@atlaskit/flag";
+import { token } from "@atlaskit/tokens";
 
 function IssuesList() {
     const [issues, setIssues] = useState([]);
     const [loading, setLoading] = useState(true);
     const [expandedIssues, setExpandedIssues] = useState({});
+    // pagination state
     const [prevTokens, setPrevTokens] = useState([""]);
     const [currentToken, setCurrentToken] = useState("");
     const [nextToken, setNextToken] = useState("");
@@ -37,8 +42,10 @@ function IssuesList() {
     const [issueToUpdate, setIssueToUpdate] = useState(null);
     // create issue state
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-    const [urlIssueDialog, setUrlIssueDialog] = useState("");
+    // flag state
+    const [flags, setFlags] = useState([]);
 
+    // limit issue each page
     const MAX_RESULTS = 5;
 
     useEffect(() => {
@@ -55,8 +62,6 @@ function IssuesList() {
                 maxResults: MAX_RESULTS,
                 nextPageToken: token,
             });
-
-            console.log("result: ", result);
 
             const rootIssues = result.issues || [];
 
@@ -110,7 +115,55 @@ function IssuesList() {
         setCurrentToken(newCurrent);
     };
 
-    // handle update
+    // handle flags
+    const iconMap = (key) => {
+        const icons = {
+            success: (
+                <SuccessIcon
+                    label="Success"
+                    primaryColor={token("color.icon.success")}
+                />
+            ),
+            error: (
+                <ErrorIcon
+                    label="Error"
+                    primaryColor={token("color.icon.danger")}
+                />
+            ),
+        };
+        return icons[key];
+    };
+
+    const addFlag = (description, icon, title) => {
+        const uniqueId = `flag-${Date.now()}-${Math.random()
+            .toString(36)
+            .substr(2, 9)}`;
+        const flagData = {
+            id: uniqueId,
+            key: uniqueId,
+            title: title,
+            description: description,
+            icon: iconMap(icon),
+            created: Date.now(),
+        };
+        setFlags((current) => [flagData, ...current]);
+    };
+
+    const dismissFlag = useCallback((id) => {
+        setFlags((current) => current.filter((flag) => flag.id !== id));
+    }, []);
+
+    // handle view issues
+    const handleOpenViewIssue = (issueKey) => {
+        const viewIssueModal = new ViewIssueModal({
+            context: {
+                issueKey: issueKey,
+            },
+        });
+        viewIssueModal.open();
+    };
+
+    // handle update issue
     const handleUpdateIssue = (issue) => {
         setIssueToUpdate(issue);
         setIsUpdateModalOpen(true);
@@ -121,11 +174,24 @@ function IssuesList() {
         setIssueToUpdate(null);
     };
 
-    const handleUpdateComplete = () => {
-        fetchIssues();
+    const handleUpdateComplete = (success, message, issueKey) => {
+        fetchIssues(currentToken);
+        if (success) {
+            addFlag(
+                `Issue ${issueKey} updated successfully!`,
+                "success",
+                "Issue Updated"
+            );
+        } else {
+            addFlag(
+                `Failed to update issue: ${message}`,
+                "error",
+                "Issue Update Failed"
+            );
+        }
     };
 
-    // handle create
+    // handle create issue
     const handleCreateIssue = () => {
         setIsCreateModalOpen(true);
     };
@@ -134,8 +200,46 @@ function IssuesList() {
         setIsCreateModalOpen(false);
     };
 
-    const handleCreateComplete = () => {
-        fetchIssues();
+    const handleCreateComplete = (success, message, issueKey) => {
+        fetchIssues(currentToken);
+        if (success) {
+            addFlag(
+                `Issue ${issueKey} created successfully!`,
+                "success",
+                "Issue Created"
+            );
+        } else {
+            addFlag(
+                `Failed to create issue: ${message}`,
+                "error",
+                "Issue Creation Failed"
+            );
+        }
+    };
+
+    // handle delete issue
+    const handleDelete = async () => {
+        if (!issueToDelete) return;
+
+        try {
+            await invoke("deleteIssue", { issueKey: issueToDelete });
+            addFlag(
+                `Issue ${issueToDelete} deleted successfully!`,
+                "success",
+                "Issue Deleted"
+            );
+            fetchIssues(currentToken);
+        } catch (error) {
+            console.error(`Error deleting issue ${issueToDelete}:`, error);
+            addFlag(
+                `Failed to delete issue: ${error.message || "Unknown Error"}`,
+                "error",
+                "Issue Deletion Failed"
+            );
+        } finally {
+            setIsDeleteModalOpen(false);
+            setIssueToDelete(null);
+        }
     };
 
     // hande get sub-task
@@ -158,15 +262,6 @@ function IssuesList() {
             "to do": "#42526E",
         };
         return statusColorMap[statusName] || "#42526E";
-    };
-
-    const handleOpenViewIssue = (issueKey) => {
-        const viewIssueModal = new ViewIssueModal({
-            context: {
-                issueKey: issueKey,
-            },
-        });
-        viewIssueModal.open();
     };
 
     const IssueItem = ({ issue, depth = 0 }) => {
@@ -222,7 +317,11 @@ function IssuesList() {
                             justifyContent: "center",
                         }}
                     >
-                        <Avatar src={typeUrl} size="xsmall" />
+                        <Avatar
+                            appearance="square"
+                            src={typeUrl}
+                            size="xsmall"
+                        />
                     </div>
 
                     <div
@@ -295,7 +394,7 @@ function IssuesList() {
                                 padding: "4px",
                                 marginRight: "4px",
                             }}
-                            onClick={() => handleUpdateIssue(issue.key)}
+                            onClick={() => handleUpdateIssue(issue)}
                         >
                             <EditIcon size="small" primaryColor="#42526E" />
                         </span>
@@ -337,19 +436,6 @@ function IssuesList() {
     const openDeleteModal = (issueKey) => {
         setIssueToDelete(issueKey);
         setIsDeleteModalOpen(true);
-    };
-    const handleDelete = async () => {
-        if (!issueToDelete) return;
-
-        try {
-            await invoke("deleteIssue", { issueKey: issueToDelete });
-            fetchIssues(currentToken);
-        } catch (error) {
-            console.error(`Error deleting issue ${issueToDelete}:`, error);
-        } finally {
-            setIsDeleteModalOpen(false);
-            setIssueToDelete(null);
-        }
     };
 
     const DeleteConfirmationModal = () => (
@@ -451,6 +537,20 @@ function IssuesList() {
                     Next
                 </Button>
             </div>
+            <FlagGroup onDismissed={dismissFlag}>
+                {flags.map((flag) => (
+                    <Flag
+                        key={flag.id}
+                        actions={[
+                            {
+                                content: "Dismiss",
+                                onClick: () => dismissFlag(flag.id),
+                            },
+                        ]}
+                        {...flag}
+                    />
+                ))}
+            </FlagGroup>
         </div>
     );
 }

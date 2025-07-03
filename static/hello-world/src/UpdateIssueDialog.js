@@ -30,36 +30,62 @@ function UpdateIssueDialog({ isOpen, onClose, issue, onUpdate }) {
     const [loadingOptions, setLoadingOptions] = useState(false);
 
     useEffect(() => {
-        if (issue && isOpen) {
-            initializeForm();
-            loadOptions();
+        if (isOpen && issue) {
+            if (typeof issue === "string") {
+                fetchIssueData(issue);
+            } else {
+                initializeForm(issue);
+                loadOptions();
+            }
         }
-    }, [issue, isOpen]);
+    }, [isOpen, issue]);
 
-    const initializeForm = () => {
-        setSummary(issue.fields?.summary || "");
-        setDescription(issue.fields?.description || "");
+    // Update fetchIssueData to initialize the form
+    const fetchIssueData = async (issueKey) => {
+        setLoading(true);
+        try {
+            const result = await invoke("getIssue", { issueKey });
+            if (result) {
+                initializeForm(result);
+                loadOptions();
+            }
+        } catch (error) {
+            console.error("Error fetching issue details:", error);
+        } finally {
+            setLoading(false);
+        }
+    };
 
-        if (issue.fields?.issuetype) {
+    // Modify initializeForm to accept the issue object as parameter
+    const initializeForm = (issueData) => {
+        // Use the passed issue data or fall back to the prop
+        const issueToUse = issueData || issue;
+
+        if (!issueToUse) return;
+
+        setSummary(issueToUse.fields?.summary || "");
+        setDescription(issueToUse.fields?.description || "");
+
+        if (issueToUse.fields?.issuetype) {
             setSelectedIssueType({
-                label: issue.fields.issuetype.name,
-                value: issue.fields.issuetype.id,
-                iconUrl: issue.fields.issuetype.iconUrl,
+                label: issueToUse.fields.issuetype.name,
+                value: issueToUse.fields.issuetype.id,
+                iconUrl: issueToUse.fields.issuetype.iconUrl,
             });
         }
 
-        if (issue.fields?.status) {
+        if (issueToUse.fields?.status) {
             setSelectedStatus({
-                label: issue.fields.status.name,
-                value: issue.fields.status.id,
+                label: issueToUse.fields.status.name,
+                value: issueToUse.fields.status.id,
             });
         }
 
-        if (issue.fields?.assignee) {
+        if (issueToUse.fields?.assignee) {
             setSelectedAssignee({
-                label: issue.fields.assignee.displayName,
-                value: issue.fields.assignee.accountId,
-                avatarUrls: issue.fields.assignee.avatarUrls,
+                label: issueToUse.fields.assignee.displayName,
+                value: issueToUse.fields.assignee.accountId,
+                avatarUrls: issueToUse.fields.assignee.avatarUrls,
             });
         } else {
             setSelectedAssignee({
@@ -75,9 +101,6 @@ function UpdateIssueDialog({ isOpen, onClose, issue, onUpdate }) {
             const context = await view.getContext();
             const projectKey = context?.extension?.project?.key;
             const projectId = context?.extension?.project?.id;
-
-            console.log("projectId:::", projectId);
-
             // Load issue types
             const issueTypesRes = await invoke("getIssueTypes", { projectId });
             const issueTypeOptions = issueTypesRes.issueTypes.map((type) => ({
@@ -87,18 +110,22 @@ function UpdateIssueDialog({ isOpen, onClose, issue, onUpdate }) {
             }));
             setIssueTypes(issueTypeOptions);
 
-            // Load statuses for current issue type
-            if (issue.fields?.issuetype?.id) {
-                const statusesRes = await invoke("getStatuses", {
-                    projectKey,
-                    issueTypeId: issue.fields.issuetype.id,
-                });
-                const statusOptions = statusesRes.statuses.map((status) => ({
+            // Load statuses project
+            const statusRes = await invoke("getStatuses", {
+                projectKey,
+            });
+
+            if (Array.isArray(statusRes)) {
+                const statusOptions = statusRes.map((status) => ({
                     label: status.name,
                     value: status.id,
+                    statusCategory: status.statusCategory,
+                    description: status.description,
                 }));
-                console.log("statusOptions:::", statusOptions);
                 setStatuses(statusOptions);
+            } else {
+                console.error("Unexpected status response format:", statusRes);
+                setStatuses([]);
             }
 
             // Load assignable users
@@ -114,7 +141,6 @@ function UpdateIssueDialog({ isOpen, onClose, issue, onUpdate }) {
                     avatarUrls: user.avatarUrls,
                 })),
             ];
-            console.log("userOptions:::", userOptions);
             setAssignableUsers(userOptions);
         } catch (error) {
             console.error("Error loading options:", error);
@@ -136,11 +162,23 @@ function UpdateIssueDialog({ isOpen, onClose, issue, onUpdate }) {
                     projectKey,
                     issueTypeId: selectedOption.value,
                 });
-                const statusOptions = statusesRes.statuses.map((status) => ({
-                    label: status.name,
-                    value: status.id,
-                }));
-                setStatuses(statusOptions);
+
+                // Check if statusesRes is an array
+                if (Array.isArray(statusesRes)) {
+                    const statusOptions = statusesRes.map((status) => ({
+                        label: status.name,
+                        value: status.id,
+                        statusCategory: status.statusCategory,
+                        description: status.description,
+                    }));
+                    setStatuses(statusOptions);
+                } else {
+                    console.error(
+                        "Unexpected status response format:",
+                        statusesRes
+                    );
+                    setStatuses([]);
+                }
 
                 // Reset status selection
                 setSelectedStatus(null);
@@ -157,6 +195,8 @@ function UpdateIssueDialog({ isOpen, onClose, issue, onUpdate }) {
 
         try {
             const fields = {};
+            let statusTransitionNeeded = false;
+            let transitionId = null;
 
             // Update summary if changed
             if (summary !== issue.fields?.summary) {
@@ -176,15 +216,34 @@ function UpdateIssueDialog({ isOpen, onClose, issue, onUpdate }) {
                 fields.issuetype = { id: selectedIssueType.value };
             }
 
-            // Update status if changed
+            // Check if status needs updating
             if (
                 selectedStatus &&
                 selectedStatus.value !== issue.fields?.status?.id
             ) {
-                fields.status = { id: selectedStatus.value };
+                statusTransitionNeeded = true;
+
+                // find transition ID for the selected status
+                const transitionsRes = await invoke("getTransitions", {
+                    issueKey: issue.key,
+                });
+
+                if (transitionsRes.transitions) {
+                    const transition = transitionsRes.transitions.find(
+                        (t) => t.to.id === selectedStatus.value
+                    );
+
+                    if (transition) {
+                        transitionId = transition.id;
+                    } else {
+                        throw new Error(
+                            `No transition found for status: ${selectedStatus.label}`
+                        );
+                    }
+                }
             }
 
-            // Update assignee if changed
+            // update assignee if changed
             if (selectedAssignee) {
                 const currentAssigneeId =
                     issue.fields?.assignee?.accountId || null;
@@ -195,32 +254,72 @@ function UpdateIssueDialog({ isOpen, onClose, issue, onUpdate }) {
                 }
             }
 
-            // Only make API call if there are changes
-            if (Object.keys(fields).length === 0) {
+            // check if need to make any updates
+            const needsFieldUpdate = Object.keys(fields).length > 0;
+            if (!needsFieldUpdate && !statusTransitionNeeded) {
                 onClose();
                 return;
             }
+            let success = true;
+            let errorMessage = null;
+            if (needsFieldUpdate) {
+                const fieldResult = await invoke("updateIssue", {
+                    issueKey: issue.key,
+                    fields: fields,
+                });
 
-            const result = await invoke("updateIssue", {
-                issueKey: issue.key,
-                fields: fields,
-            });
+                if (!fieldResult.success) {
+                    success = false;
+                    errorMessage =
+                        fieldResult.error || "Failed to update issue fields";
+                    console.error(
+                        "Failed to update issue fields:",
+                        fieldResult.error
+                    );
+                }
+            }
 
-            if (result.success) {
-                onUpdate(); // Refresh the issues list
+            if (statusTransitionNeeded && success && transitionId) {
+                const transitionResult = await invoke("transitionIssue", {
+                    issueKey: issue.key,
+                    transitionId: transitionId,
+                });
+
+                if (!transitionResult.success) {
+                    success = false;
+                    errorMessage =
+                        transitionResult.error ||
+                        "Failed to update issue status";
+                    console.error(
+                        "Failed to transition issue:",
+                        transitionResult.error
+                    );
+                }
+            }
+
+            if (success) {
+                onUpdate(
+                    true,
+                    `Issue ${issue.key} updated successfully`,
+                    issue.key
+                );
                 onClose();
             } else {
-                console.error("Failed to update issue:", result.error);
+                onUpdate(
+                    false,
+                    errorMessage || "Failed to update issue",
+                    issue.key
+                );
             }
         } catch (error) {
             console.error("Error updating issue:", error);
+            onUpdate(false, error.message || "Error updating issue", issue.key);
         } finally {
             setLoading(false);
         }
     };
 
     const handleClose = () => {
-        initializeForm();
         onClose();
     };
 

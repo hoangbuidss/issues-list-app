@@ -83,12 +83,10 @@ resolver.define("deleteIssue", async (req) => {
 
 resolver.define("getProperty", async (req) => {
     const { projectKey, property } = req.payload;
-    console.log("projectKey::", projectKey);
-    console.log("property::", property);
 
     try {
         const response = await api
-            .asUser()
+            .asApp()
             .requestJira(
                 route`/rest/api/3/project/${projectKey}/properties/${property}`,
                 {
@@ -131,7 +129,7 @@ resolver.define("saveProperty", async (req) => {
     const { projectKey, property } = req.payload;
     try {
         const response = await api
-            .asUser()
+            .asApp()
             .requestJira(
                 route`/rest/api/3/project/${projectKey}/properties/${property}`,
                 {
@@ -154,7 +152,7 @@ resolver.define("getIssueTypes", async (req) => {
     const { projectId } = req.payload;
     try {
         const response = await api
-            .asUser()
+            .asApp()
             .requestJira(route`/rest/api/3/project/${projectId}`, {
                 headers: {
                     Accept: "application/json",
@@ -181,10 +179,10 @@ resolver.define("getIssueTypes", async (req) => {
 });
 
 resolver.define("getStatuses", async (req) => {
-    const { projectKey, issueTypeId } = req.payload;
+    const { projectKey } = req.payload;
     try {
         const response = await api
-            .asUser()
+            .asApp()
             .requestJira(route`/rest/api/3/project/${projectKey}/statuses`, {
                 headers: {
                     Accept: "application/json",
@@ -192,32 +190,10 @@ resolver.define("getStatuses", async (req) => {
             });
         const data = await response.json();
 
-        console.log("Statuses data:", JSON.stringify(data, null, 2));
-
-        // Check if data is an array
-        if (!Array.isArray(data)) {
-            console.error("Statuses response is not an array:", data);
-            return { statuses: [] };
-        }
-
-        // Find statuses for the specific issue type
-        const statusInfo = data.find(
-            (item) =>
-                item.issueTypes &&
-                Array.isArray(item.issueTypes) &&
-                item.issueTypes.some((type) => type.id === issueTypeId)
-        );
-
-        const statuses =
-            statusInfo && statusInfo.statuses ? statusInfo.statuses : [];
-
-        return {
-            statuses: statuses.map((s) => ({
-                id: s.id,
-                name: s.name,
-                statusCategory: s.statusCategory,
-            })),
-        };
+        console.log("Statuses data:", data);
+        const statuses = data[0].statuses;
+        console.log("Statuses response:: ", statuses);
+        return statuses;
     } catch (error) {
         console.error("Error getting statuses:", error);
         return { statuses: [] };
@@ -296,6 +272,56 @@ resolver.define("createIssue", async (req) => {
             success: false,
             error: error.message,
         };
+    }
+});
+
+resolver.define("getTransitions", async (req) => {
+    const { issueKey } = req.payload;
+    try {
+        const response = await api
+            .asUser()
+            .requestJira(route`/rest/api/3/issue/${issueKey}/transitions`, {
+                headers: {
+                    Accept: "application/json",
+                },
+            });
+        const data = await response.json();
+        console.log("Transitions data:", JSON.stringify(data, null, 2));
+        return data;
+    } catch (error) {
+        console.error("Error getting transitions:", error);
+        return { transitions: [] };
+    }
+});
+
+resolver.define("transitionIssue", async (req) => {
+    const { issueKey, transitionId } = req.payload;
+
+    try {
+        const response = await api
+            .asUser()
+            .requestJira(route`/rest/api/3/issue/${issueKey}/transitions`, {
+                method: "POST",
+                headers: {
+                    Accept: "application/json",
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                    transition: {
+                        id: transitionId,
+                    },
+                }),
+            });
+        if (response.status >= 200 && response.status < 300) {
+            return { success: true };
+        } else {
+            const error = await response.text();
+            console.error(`Error transitioning issue ${issueKey}:`, error);
+            return { success: false, error: `Status update failed: ${error}` };
+        }
+    } catch (error) {
+        console.error(`Error in transitionIssue for ${issueKey}:`, error);
+        return { success: false, error: error.message };
     }
 });
 
